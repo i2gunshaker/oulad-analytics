@@ -85,7 +85,7 @@ Open University Learning Analytics Dataset (OULAD), released by The Open Univers
 | `vle` | Virtual Learning Environment resource metadata | ~6,364 |
 | `courses` | Module and presentation metadata | ~22 |
 
-Download: https://analyse.kmi.open.ac.uk/open_dataset
+Download: https://www.kaggle.com/datasets/anlgrbz/student-demographics-online-education-dataoulad
 
 ---
 
