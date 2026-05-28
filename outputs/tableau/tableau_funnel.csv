@@ -1,0 +1,6 @@
+stage_order,stage_name,students,pct_of_registered,drop_off_pct
+1,Registered,32593,100.0,0.0
+2,Active (Any Click),29228,89.7,10.3
+3,Submitted Assessment,25820,79.2,20.8
+4,Passed,15385,47.2,52.8
+5,Distinction,3024,9.3,90.7

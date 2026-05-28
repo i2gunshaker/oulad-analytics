@@ -1,0 +1,40 @@
+# Data files — never commit raw/processed data to GitHub
+data/raw/
+data/processed/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+
+# Deprecated project files
+sql/queries.sql
+notebooks/03_ab_test_simulation.ipynb
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+env/
+.env/
+.venv/
+
+# OS files
+.DS_Store
+.Rhistory
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Tableau working files (commit only the exported CSVs, not the .twbx)
+outputs/tableau/*.twbx
+outputs/tableau/*.twb
+
+# Large output files
+*.pkl
+*.parquet
