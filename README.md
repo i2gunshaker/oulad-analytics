@@ -1,113 +1,106 @@
 # OULAD learning analytics
 
-![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat&logo=python&logoColor=white)
-![SQL](https://img.shields.io/badge/SQL-PostgreSQL-4169E1?style=flat&logo=postgresql&logoColor=white)
-![Tableau](https://img.shields.io/badge/Tableau-Public-E97627?style=flat&logo=tableau&logoColor=white)
-![Jupyter](https://img.shields.io/badge/Jupyter-Notebook-F37626?style=flat&logo=jupyter&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-green?style=flat)
+This project uses anonymized records from The Open University to examine course
+engagement, compare completion across presentations, and test how well early
+activity identifies enrollments at risk of withdrawal. The dataset contains
+**32,593 module-presentation enrollments**, **28,785 distinct student IDs**, and
+**10,655,280 virtual learning environment (VLE) event rows**. One student can
+have multiple enrollments. [Data preparation and counts](notebooks/01_data_preparation.ipynb)
 
-Product analytics project using the Open University Learning Analytics Dataset — real behavioral data from 32,000 students across 22 online courses. I worked through the full analyst cycle: cleaning and merging seven source tables, building engagement funnels and cohort retention curves, estimating student LTV, running a quasi-experimental A/B test, and publishing a Tableau dashboard.
+## Key findings
 
----
+- **Engagement funnel.** Of all enrollments, **89.7%** recorded at least one
+  click, **79.2%** had at least one scored assessment, and **47.2%** earned Pass
+  or Distinction. **31.2%** ended with the official outcome Withdrawn. These
+  are shares of all enrollments. [Data preparation](notebooks/01_data_preparation.ipynb) · [Product analytics](notebooks/02_product_analytics.ipynb)
+- **Early activity and retention.** Completion was **55.3%** for enrollments
+  with a positive click on course days 0–13 and **12.4%** for those without
+  one. The largest average week-to-week drop in the retention index was at
+  **week 10 (−10.1 percentage points)**. The index counts distinct active IDs
+  within each presentation, divides by peak activity in weeks 0–2, and caps
+  the ratio at 100%. [Early activity](notebooks/01_data_preparation.ipynb) · [Cohort retention](notebooks/02_product_analytics.ipynb)
+- **Modeled LTV.** The High click tier was estimated at **£3,537** per
+  enrollment and the Inactive tier at **£2,507**, a **£1,030** gap. The
+  scenario uses an illustrative UK Open University fee and assumed
+  re-enrollment and referral rates. [LTV model and sensitivity analysis](notebooks/02_product_analytics.ipynb)
+- **Quasi-experiment.** BBB completion rose from **45.4% (2013B)** to
+  **50.3% (2014J)**, a raw difference of **+4.8 pp**. After adjustment the
+  difference was **+2.6 pp** (95% CI **−0.5 to +5.6 pp**, p = **0.1001**).
+  All six eligible modules had positive adjusted estimates, with nominal
+  intervals above zero for CCC, DDD, and EEE. Among scored enrollments in BBB,
+  mean scores were **77.2** and **64.3** respectively. Score coverage,
+  Welch and Mann–Whitney tests, and the student-cluster bootstrap are reported
+  alongside that secondary comparison. [Quasi-experiment](notebooks/03_ab_test.ipynb)
+- **Withdrawal prediction.** On the held-out **2014J** presentation, logistic
+  regression achieved **0.571 ROC-AUC** and **0.218 average precision**.
+  Gradient boosting achieved **0.563** and **0.215**, respectively. The
+  logistic model's top 10% contained **215 withdrawals among 913 enrollments**
+  (**23.5%** precision, **1.27×** lift over the **18.6%** holdout prevalence).
+  This measures how well the model prioritizes reviews. [Withdrawal risk and calibration](notebooks/05_withdrawal_risk.ipynb)
 
-## Live dashboard
+## Run locally
 
-> [View on Tableau Public →](https://public.tableau.com/app/profile/aitugan.shagyr/viz/OULADLearningAnalyticsEngagementRetentionOutcomes/Dashboard1?publish=yes)
+Download and extract the CSVs directly into `data/raw/`. OULAD contains
+observed, anonymized enrollment, assessment, and click records. The analysis
+uses the data as released under CC BY 4.0. [Kaggle download](https://www.kaggle.com/datasets/anlgrbz/student-demographics-online-education-dataoulad) · [Dataset paper](https://doi.org/10.1038/sdata.2017.171)
 
----
+From the repository root with Python 3.12:
 
-## Business questions
-
-1. Where do students drop out, and which stage loses the most people?
-2. Which enrollment cohorts retain well, and when do they fall off?
-3. How much is a student worth at each level of engagement?
-4. Did the later course presentation produce better outcomes than the earlier one?
-5. Which content types and regions show the highest completion rates?
-
----
-
-## What the data showed
-
-About 30% of students withdraw before finishing their module — the biggest single drop-off event in the dataset. Students who interact with the platform in their first 14 days complete at roughly 2–3× the rate of those who don't, so week-1 activation is the most obvious place to intervene. The LTV gap between a high-engagement student and an inactive one works out to over £1,100, driven mostly by re-enrollment rather than referrals. Week 4 is where the steepest average retention drop happens across all cohorts. Assessment-type activities — TMAs and quizzes — show a much stronger relationship with completion than passive content like videos or reading materials.
-
----
-
-## Project structure
-
-```
-oulad-analytics/
-├── notebooks/
-│   ├── 01_data_preparation.ipynb     # load, clean, merge all 7 tables; feature engineering
-│   ├── 02_product_analytics.ipynb    # funnel, cohort retention heatmap, LTV + sensitivity
-│   ├── 03_ab_test.ipynb              # quasi-experiment: t-test, Mann-Whitney, Cohen's d, bootstrap CI
-│   └── 04_tableau_export.ipynb       # export Tableau-ready CSVs + step-by-step dashboard guide
-├── sql/
-│   ├── 01_setup_schema.sql           # PostgreSQL schema + \COPY data load commands
-│   └── 02_queries.sql                # analytical query library (PostgreSQL 14+)
-├── data/
-│   ├── raw/                          # OULAD source CSVs (not committed — download separately)
-│   └── processed/                    # cleaned & merged outputs
-├── outputs/
-│   └── tableau/                      # Tableau-ready CSVs
-├── assets/                           # charts saved during notebook runs
-├── requirements.txt
-├── .gitignore
-└── README.md
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=240 notebooks/0*.ipynb
 ```
 
----
+Run the notebooks in the order shown below. Notebook 01 creates the processed
+table read by notebooks 02 and 04. Notebooks 03 and 05 read the raw CSVs
+directly. Open the executed notebooks in Jupyter to view the charts. Interactive
+Plotly charts use the Plotly CDN, and selected static figures are in `assets/`.
 
-## Tech stack
+To run the SQL from the repository root using a fresh PostgreSQL database:
 
-| Tool | Purpose |
-|------|---------|
-| Python / Pandas / NumPy | Data wrangling, feature engineering |
-| Matplotlib / Seaborn / Plotly | Visualisation |
-| SciPy / Statsmodels | A/B testing, statistical inference |
-| SQL (PostgreSQL 14+) | Schema design, indexing, analytical queries across all 7 tables |
-| Tableau Public | Interactive dashboard |
-| Jupyter Notebook | Reproducible analysis |
-| Git / GitHub | Version control |
+```bash
+createdb oulad
+psql -d oulad -v ON_ERROR_STOP=1 -f sql/01_setup_schema.sql
+psql -d oulad -v ON_ERROR_STOP=1 -f sql/02_queries.sql
+```
 
----
+The query library uses window functions for outcome shares, funnel ratios and
+week-over-week retention. Covariate adjustment and model evaluation run in Python.
 
-## Dataset
+## Repository structure
 
-Open University Learning Analytics Dataset (OULAD), released by The Open University UK under CC BY 4.0.
+| Path | Contents |
+| --- | --- |
+| `notebooks/01_data_preparation.ipynb` | Input checks, enrollment joins, early activity and segmentation |
+| `notebooks/02_product_analytics.ipynb` | Funnel, cohort retention, modeled LTV and sensitivity |
+| `notebooks/03_ab_test.ipynb` | Raw and adjusted B/J completion, score comparisons |
+| `notebooks/04_tableau_export.ipynb` | Published dashboard exports and retention reconciliation |
+| `notebooks/05_withdrawal_risk.ipynb` | Day-28 features, temporal holdout, calibration and SHAP |
+| `sql/` | PostgreSQL schema, CSV load and analytical queries |
+| `assets/` | Figures generated by the notebooks |
+| `outputs/tableau/` | CSVs used by the published workbook |
 
-| Table | Description | Rows |
-|-------|-------------|------|
-| `studentInfo` | Demographics, disability, prior education, final result | ~32,000 |
-| `studentRegistration` | Enrollment and unregistration dates | ~32,000 |
-| `studentAssessment` | Assessment scores and submission timestamps | ~173,000 |
-| `studentVle` | Daily click interactions per student per resource | ~10.6M |
-| `assessments` | Assessment metadata (type, weight, due date) | ~206 |
-| `vle` | Virtual Learning Environment resource metadata | ~6,364 |
-| `courses` | Module and presentation metadata | ~22 |
+## Tableau Public
 
-Download: https://www.kaggle.com/datasets/anlgrbz/student-demographics-online-education-dataoulad
+The published funnel shares agree with the notebook. Its count label
+“Students” refers to enrollments. The heatmap uses Week 0 as its denominator.
+For example, 2013B Week 1 is **96.8%** in Tableau and **93.6%** under the
+notebook's peak-based index. The Tableau export can exceed 100%, while the
+notebook caps the index. Use the notebook's definition for the Week 10 finding.
+[Published dashboard](https://public.tableau.com/app/profile/aitugan.shagyr/viz/OULADLearningAnalyticsEngagementRetentionOutcomes/Dashboard1?publish=yes) · [Tableau export reconciliation](notebooks/04_tableau_export.ipynb)
 
----
+## Limitations
 
-
-
----
-
-## Statistical methods
-
-| Method | Used for |
-|--------|---------|
-| Shapiro-Wilk | Normality check before choosing parametric vs non-parametric test |
-| Welch's t-test | Comparing mean assessment scores between groups (unequal variance) |
-| Mann-Whitney U | Non-parametric comparison of score distributions |
-| Chi-square | Comparing completion rates (binary outcome) between groups |
-| Cohen's d | Effect size of the observed difference |
-| Bootstrap CI (10,000 iterations) | Distribution-free confidence intervals for the mean difference |
-| Power analysis | Required sample size for future experiments |
-
----
-
-## License
-
-MIT License. The OULAD dataset is CC BY 4.0.  
-Citation: Kuzilek J., Hlosta M., Zdrahal Z. (2017). *Open University Learning Analytics dataset*. Sci. Data 4:170171. doi:10.1038/sdata.2017.171
+- Early activity and full-course engagement are descriptive associations.
+  Presentation differences in the quasi-experiment can reflect calendar,
+  course and assessment changes, and unmeasured differences in who enrolled.
+  The score comparison is conditional on having a recorded score.
+- LTV estimates illustrative gross revenue under assumed fee, repeat enrollment
+  and referral inputs. OULAD supplies outcomes and activity, with no transaction
+  or referral revenue records.
+- The withdrawal model scores enrollments still active at the start of day 28.
+  The retrospective holdout uses earlier presentations for training. Real-time
+  deployment would require confirming when their final labels became available.
+  The results estimate ranking performance under a review capacity constraint.

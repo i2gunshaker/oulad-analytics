@@ -36,7 +36,12 @@ GROUP BY final_result
 ORDER BY students DESC;
 
 
--- 1.3  Students per module × presentation (useful for picking the A/B test target)
+-- 1.3  Enrollment and distinct student counts
+SELECT COUNT(*) AS enrollments, COUNT(DISTINCT id_student) AS distinct_students
+FROM student_info;
+
+
+-- 1.4  Enrollments per module × presentation
 SELECT
     code_module,
     code_presentation,
@@ -52,7 +57,7 @@ ORDER BY students DESC;
 -- SECTION 2: FUNNEL ANALYSIS
 -- =============================================================
 
--- 2.1  Full five-stage engagement funnel
+-- 2.1  Five engagement milestones, counted independently
 WITH base AS (
     SELECT
         si.id_student,
@@ -101,7 +106,8 @@ SELECT
     stage,
     students,
     ROUND(students * 100.0 / FIRST_VALUE(students) OVER (ORDER BY ord), 1) AS pct_of_registered,
-    ROUND(students * 100.0 / LAG(students) OVER (ORDER BY ord), 1)          AS stage_conversion_pct
+    COALESCE(ROUND(students * 100.0 / NULLIF(LAG(students) OVER (ORDER BY ord), 0), 1),
+             CASE WHEN ord = 1 THEN 100.0 END)                           AS stage_conversion_pct
 FROM funnel
 ORDER BY ord;
 
@@ -144,152 +150,141 @@ ORDER BY activation_rate_pct ASC;
 -- SECTION 3: COHORT RETENTION
 -- =============================================================
 
--- 3.1  Weekly retention rate by enrollment cohort
---      Baseline = maximum active students in weeks 0-2 (robust to late joiners)
+-- 3.1  Weekly retention index by presentation (notebook 02)
+--      Denominator: peak active IDs in weeks 0–2. Index capped at 100%.
 WITH weekly AS (
-    SELECT
-        sv.code_presentation                            AS cohort,
-        sv."date" / 7                                   AS week_num,
-        COUNT(DISTINCT sv.id_student)                   AS active_students
+    SELECT sv.code_presentation AS cohort, sv."date" / 7 AS week_num,
+           COUNT(DISTINCT sv.id_student) AS active_students
     FROM student_vle sv
-    WHERE sv."date" BETWEEN 0 AND 175   -- weeks 0–25
+    JOIN student_info si USING (id_student, code_module, code_presentation)
+    WHERE sv."date" BETWEEN 0 AND 181 AND sv.sum_click > 0
     GROUP BY sv.code_presentation, week_num
-),
-baseline AS (
+), baseline AS (
     SELECT cohort, MAX(active_students) AS cohort_size
     FROM weekly
     WHERE week_num <= 2
     GROUP BY cohort
+), retention AS (
+    SELECT b.cohort, weeks.week_num, COALESCE(w.active_students, 0) AS active_students,
+           b.cohort_size,
+           LEAST(COALESCE(w.active_students, 0)::NUMERIC / b.cohort_size, 1.0) * 100 AS retention_pct
+    FROM baseline b
+    CROSS JOIN generate_series(0, 25) AS weeks(week_num)
+    LEFT JOIN weekly w ON w.cohort = b.cohort AND w.week_num = weeks.week_num
 )
-SELECT
-    w.cohort,
-    w.week_num,
-    w.active_students,
-    b.cohort_size,
-    ROUND(
-        LEAST(w.active_students::NUMERIC / NULLIF(b.cohort_size, 0), 1.0) * 100, 1
-    ) AS retention_pct
-FROM weekly w
-JOIN baseline b USING (cohort)
-ORDER BY w.cohort, w.week_num;
-
-
--- 3.2  Average week-on-week drop — find the critical churn week
-WITH weekly AS (
-    SELECT
-        sv."date" / 7                       AS week_num,
-        sv.code_presentation                AS cohort,
-        COUNT(DISTINCT sv.id_student)       AS active_students
-    FROM student_vle sv
-    WHERE sv."date" BETWEEN 0 AND 175
-    GROUP BY week_num, cohort
-),
-baseline AS (
-    SELECT cohort, MAX(active_students) AS cohort_size
-    FROM weekly WHERE week_num <= 2
-    GROUP BY cohort
-),
-retention AS (
-    SELECT
-        w.week_num,
-        ROUND(AVG(
-            LEAST(w.active_students::NUMERIC / NULLIF(b.cohort_size, 0), 1.0)
-        ) * 100, 1) AS avg_retention_pct
-    FROM weekly w JOIN baseline b USING (cohort)
-    GROUP BY w.week_num
-)
-SELECT
-    week_num,
-    avg_retention_pct,
-    ROUND(avg_retention_pct
-          - LAG(avg_retention_pct) OVER (ORDER BY week_num), 1) AS wow_change_pp
+SELECT cohort, week_num, active_students, cohort_size, ROUND(retention_pct, 1) AS retention_pct
 FROM retention
+ORDER BY cohort, week_num;
+
+
+-- 3.2  Equal-weight average by presentation. Round after taking the difference.
+WITH weekly AS (
+    SELECT sv.code_presentation AS cohort, sv."date" / 7 AS week_num,
+           COUNT(DISTINCT sv.id_student) AS active_students
+    FROM student_vle sv
+    JOIN student_info si USING (id_student, code_module, code_presentation)
+    WHERE sv."date" BETWEEN 0 AND 181 AND sv.sum_click > 0
+    GROUP BY sv.code_presentation, week_num
+), baseline AS (
+    SELECT cohort, MAX(active_students) AS cohort_size
+    FROM weekly
+    WHERE week_num <= 2
+    GROUP BY cohort
+), retention AS (
+    SELECT b.cohort, weeks.week_num, COALESCE(w.active_students, 0) AS active_students,
+           b.cohort_size,
+           LEAST(COALESCE(w.active_students, 0)::NUMERIC / b.cohort_size, 1.0) * 100 AS retention_pct
+    FROM baseline b
+    CROSS JOIN generate_series(0, 25) AS weeks(week_num)
+    LEFT JOIN weekly w ON w.cohort = b.cohort AND w.week_num = weeks.week_num
+),
+weekly_average AS (
+    SELECT week_num, AVG(retention_pct) AS avg_retention_pct
+    FROM retention
+    GROUP BY week_num
+)
+SELECT week_num, ROUND(avg_retention_pct, 1) AS avg_retention_pct,
+       ROUND(avg_retention_pct - LAG(avg_retention_pct) OVER (ORDER BY week_num), 1) AS wow_change_pp
+FROM weekly_average
 ORDER BY week_num;
 
 
 -- =============================================================
--- SECTION 4: AT-RISK STUDENT DETECTION
+-- SECTION 4: RETROSPECTIVE ENGAGEMENT FLAGS
 -- =============================================================
 
--- 4.1  Flag students with low early engagement and poor submission rate
-WITH engagement AS (
-    SELECT
-        id_student, code_module, code_presentation,
-        SUM(sum_click)              AS total_clicks,
-        COUNT(DISTINCT "date")      AS active_days,
-        MIN("date")                 AS first_activity_day
-    FROM student_vle
-    GROUP BY id_student, code_module, code_presentation
-),
-submission AS (
-    SELECT
-        sa.id_student,
-        a.code_module,
-        a.code_presentation,
-        ROUND(COUNT(*) FILTER (WHERE sa.score IS NOT NULL)::NUMERIC
-              / NULLIF(COUNT(*), 0), 2)  AS submission_rate,
-        ROUND(AVG(COALESCE(sa.score, 0)), 1) AS avg_score
-    FROM student_assessment sa
-    JOIN assessments a USING (id_assessment)
-    GROUP BY sa.id_student, a.code_module, a.code_presentation
-)
-SELECT
-    si.id_student,
-    si.code_module,
-    si.code_presentation,
-    si.final_result,
-    COALESCE(e.total_clicks, 0)         AS total_clicks,
-    COALESCE(e.first_activity_day, -1)  AS first_activity_day,
-    COALESCE(s.submission_rate, 0)      AS submission_rate,
-    COALESCE(s.avg_score, 0)            AS avg_score,
-    CASE
-        WHEN COALESCE(e.total_clicks, 0) = 0
-            THEN 'No Activity'
-        WHEN COALESCE(e.first_activity_day, 999) > 14
-         AND COALESCE(s.submission_rate, 0) < 0.5
-            THEN 'At Risk'
-        WHEN COALESCE(e.total_clicks, 0) < 500
-            THEN 'Low Engagement'
-        WHEN COALESCE(e.total_clicks, 0) < 2000
-            THEN 'Medium Engagement'
-        ELSE 'High Engagement'
-    END AS segment
-FROM student_info si
-LEFT JOIN engagement  e USING (id_student, code_module, code_presentation)
-LEFT JOIN submission  s USING (id_student, code_module, code_presentation)
-ORDER BY total_clicks ASC;
-
-
--- 4.2  At-risk summary per module
+-- 4.1  Match notebook 01. Full-course submissions make this a descriptive flag.
 WITH engagement AS (
     SELECT id_student, code_module, code_presentation,
-           SUM(sum_click) AS total_clicks,
-           MIN("date")    AS first_activity_day
+           SUM(sum_click) AS total_clicks
     FROM student_vle
     GROUP BY id_student, code_module, code_presentation
-),
-submission AS (
+), early AS (
+    SELECT DISTINCT id_student, code_module, code_presentation
+    FROM student_vle
+    WHERE "date" BETWEEN 0 AND 13 AND sum_click > 0
+), submission AS (
     SELECT sa.id_student, a.code_module, a.code_presentation,
-           ROUND(COUNT(*) FILTER (WHERE sa.score IS NOT NULL)::NUMERIC
-                 / NULLIF(COUNT(*), 0), 2) AS submission_rate
+           COUNT(sa.score)::NUMERIC / COUNT(*) AS submission_rate,
+           AVG(COALESCE(sa.score, 0)) AS avg_score
     FROM student_assessment sa
     JOIN assessments a USING (id_assessment)
     GROUP BY sa.id_student, a.code_module, a.code_presentation
+), flags AS (
+    SELECT si.id_student, si.code_module, si.code_presentation, si.final_result,
+           COALESCE(e.total_clicks, 0) AS total_clicks,
+           early.id_student IS NOT NULL AS early_active,
+           COALESCE(s.submission_rate, 0) AS submission_rate,
+           COALESCE(s.avg_score, 0) AS avg_score,
+           early.id_student IS NULL AND COALESCE(s.submission_rate, 0) < 0.5 AS at_risk
+    FROM student_info si
+    LEFT JOIN engagement e USING (id_student, code_module, code_presentation)
+    LEFT JOIN early USING (id_student, code_module, code_presentation)
+    LEFT JOIN submission s USING (id_student, code_module, code_presentation)
 )
-SELECT
-    si.code_module,
-    COUNT(*)                                                                        AS total_students,
-    COUNT(*) FILTER (WHERE COALESCE(e.total_clicks, 0) = 0)                         AS inactive,
-    COUNT(*) FILTER (WHERE COALESCE(e.first_activity_day, 999) > 14
-                      AND  COALESCE(s.submission_rate, 0) < 0.5)                    AS at_risk,
-    ROUND(COUNT(*) FILTER (WHERE COALESCE(e.total_clicks, 0) = 0)
-          * 100.0 / NULLIF(COUNT(*), 0), 1)                                         AS inactive_pct,
-    ROUND(COUNT(*) FILTER (WHERE final_result = 'Withdrawn')
-          * 100.0 / NULLIF(COUNT(*), 0), 1)                                         AS withdrawal_pct
-FROM student_info si
-LEFT JOIN engagement e USING (id_student, code_module, code_presentation)
-LEFT JOIN submission s USING (id_student, code_module, code_presentation)
-GROUP BY si.code_module
+SELECT id_student, code_module, code_presentation, final_result, total_clicks,
+       early_active, ROUND(submission_rate, 2) AS submission_rate,
+       ROUND(avg_score, 1) AS avg_score, at_risk
+FROM flags
+ORDER BY total_clicks, id_student, code_module, code_presentation;
+
+
+-- 4.2  Flag summaries by module
+WITH engagement AS (
+    SELECT id_student, code_module, code_presentation,
+           SUM(sum_click) AS total_clicks
+    FROM student_vle
+    GROUP BY id_student, code_module, code_presentation
+), early AS (
+    SELECT DISTINCT id_student, code_module, code_presentation
+    FROM student_vle
+    WHERE "date" BETWEEN 0 AND 13 AND sum_click > 0
+), submission AS (
+    SELECT sa.id_student, a.code_module, a.code_presentation,
+           COUNT(sa.score)::NUMERIC / COUNT(*) AS submission_rate,
+           AVG(COALESCE(sa.score, 0)) AS avg_score
+    FROM student_assessment sa
+    JOIN assessments a USING (id_assessment)
+    GROUP BY sa.id_student, a.code_module, a.code_presentation
+), flags AS (
+    SELECT si.id_student, si.code_module, si.code_presentation, si.final_result,
+           COALESCE(e.total_clicks, 0) AS total_clicks,
+           early.id_student IS NOT NULL AS early_active,
+           COALESCE(s.submission_rate, 0) AS submission_rate,
+           COALESCE(s.avg_score, 0) AS avg_score,
+           early.id_student IS NULL AND COALESCE(s.submission_rate, 0) < 0.5 AS at_risk
+    FROM student_info si
+    LEFT JOIN engagement e USING (id_student, code_module, code_presentation)
+    LEFT JOIN early USING (id_student, code_module, code_presentation)
+    LEFT JOIN submission s USING (id_student, code_module, code_presentation)
+)
+SELECT code_module, COUNT(*) AS enrollments,
+       COUNT(*) FILTER (WHERE total_clicks = 0) AS inactive,
+       COUNT(*) FILTER (WHERE at_risk) AS at_risk,
+       ROUND(AVG((total_clicks = 0)::INT) * 100, 1) AS inactive_pct,
+       ROUND(AVG((final_result = 'Withdrawn')::INT) * 100, 1) AS withdrawal_pct
+FROM flags
+GROUP BY code_module
 ORDER BY inactive_pct DESC;
 
 
@@ -313,8 +308,8 @@ tiered AS (
         si.final_result,
         CASE
             WHEN COALESCE(e.total_clicks, 0)  = 0    THEN 'Inactive'
-            WHEN COALESCE(e.total_clicks, 0)  < 500  THEN 'Low'
-            WHEN COALESCE(e.total_clicks, 0)  < 2000 THEN 'Medium'
+            WHEN COALESCE(e.total_clicks, 0) <= 500  THEN 'Low'
+            WHEN COALESCE(e.total_clicks, 0) <= 2000 THEN 'Medium'
             ELSE                                           'High'
         END AS engagement_tier,
         CASE WHEN si.final_result IN ('Pass','Distinction') THEN 1 ELSE 0 END AS completed
@@ -339,72 +334,66 @@ SELECT
         2500                                                -- module fee
         + (p_complete * 0.45 * 2500)                       -- re-enrollment
         + (p_complete * 0.15 * 300)                        -- referral (passers)
-        + ((1 - p_complete) * 0.02 * 300)                  -- referral (dropouts)
+        + ((1 - p_complete) * 0.02 * 300)                  -- referral (incomplete)
     , 0) AS estimated_ltv_gbp
 FROM tier_stats
 ORDER BY estimated_ltv_gbp DESC;
 
 
 -- =============================================================
--- SECTION 6: A/B TEST — QUASI-EXPERIMENT
+-- SECTION 6: B/J QUASI-EXPERIMENT
 -- =============================================================
 
--- 6.1  Completion and withdrawal rates across two presentations of the same module
---      Replace 'BBB' with the module code from your analysis
-SELECT
-    code_presentation,
-    COUNT(*)                                                                        AS students,
-    ROUND(COUNT(*) FILTER (WHERE final_result IN ('Pass','Distinction'))
-          * 100.0 / NULLIF(COUNT(*), 0), 1)                                         AS completion_pct,
-    ROUND(COUNT(*) FILTER (WHERE final_result = 'Withdrawn')
-          * 100.0 / NULLIF(COUNT(*), 0), 1)                                         AS withdrawal_pct,
-    ROUND(COUNT(*) FILTER (WHERE final_result = 'Fail')
-          * 100.0 / NULLIF(COUNT(*), 0), 1)                                         AS fail_pct
-FROM student_info
-WHERE code_module = 'BBB'
-  AND code_presentation IN ('2013B', '2014B')
-GROUP BY code_presentation
-ORDER BY code_presentation;
+-- 6.1  Raw completion among all enrollments, earliest B versus latest J per module
+--      Covariate adjustment and clustered inference are computed in notebook 03.
+WITH pairs AS (
+    SELECT code_module,
+           MIN(code_presentation) FILTER (WHERE RIGHT(code_presentation, 1) = 'B') AS b,
+           MAX(code_presentation) FILTER (WHERE RIGHT(code_presentation, 1) = 'J') AS j
+    FROM courses
+    GROUP BY code_module
+), rates AS (
+    SELECT p.code_module, p.b, p.j,
+           COUNT(*) FILTER (WHERE si.code_presentation = p.b) AS b_enrolled,
+           COUNT(*) FILTER (WHERE si.code_presentation = p.j) AS j_enrolled,
+           COUNT(*) FILTER (WHERE si.code_presentation = p.b AND si.final_result IN ('Pass', 'Distinction'))
+               AS b_completed,
+           COUNT(*) FILTER (WHERE si.code_presentation = p.j AND si.final_result IN ('Pass', 'Distinction'))
+               AS j_completed
+    FROM pairs p
+    JOIN student_info si ON si.code_module = p.code_module AND si.code_presentation IN (p.b, p.j)
+    WHERE p.b IS NOT NULL AND p.j IS NOT NULL
+    GROUP BY p.code_module, p.b, p.j
+)
+SELECT code_module, b, j, b_enrolled, b_completed, j_enrolled, j_completed,
+       ROUND(100.0 * b_completed / b_enrolled, 2) AS b_rate_pct,
+       ROUND(100.0 * j_completed / j_enrolled, 2) AS j_rate_pct,
+       ROUND(100.0 * (j_completed::NUMERIC / j_enrolled - b_completed::NUMERIC / b_enrolled), 2)
+           AS j_minus_b_pp
+FROM rates
+ORDER BY code_module;
 
 
--- 6.2  Average assessment score per group (submitted only)
-SELECT
-    si.code_presentation,
-    COUNT(DISTINCT si.id_student)                       AS students_with_scores,
-    ROUND(AVG(sa.score), 2)                             AS mean_score,
-    ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP
-          (ORDER BY sa.score)::NUMERIC, 2)              AS median_score,
-    ROUND(STDDEV_SAMP(sa.score)::NUMERIC, 2)            AS stddev_score,
-    MIN(sa.score)                                       AS min_score,
-    MAX(sa.score)                                       AS max_score
+-- 6.2  BBB secondary outcome. Give each scored enrollment equal weight.
+WITH enrollment_scores AS (
+    SELECT sa.id_student, a.code_module, a.code_presentation, AVG(sa.score) AS score
+    FROM student_assessment sa
+    JOIN assessments a USING (id_assessment)
+    WHERE a.code_module = 'BBB'
+      AND a.code_presentation IN ('2013B', '2014J')
+      AND sa.score IS NOT NULL
+    GROUP BY sa.id_student, a.code_module, a.code_presentation
+)
+SELECT si.code_presentation, COUNT(*) AS enrolled, COUNT(es.score) AS scored,
+       ROUND(AVG(es.score), 2) AS mean_score,
+       ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY es.score)::NUMERIC, 2) AS median_score,
+       ROUND(STDDEV_SAMP(es.score), 2) AS stddev_score,
+       ROUND(100.0 * COUNT(es.score) / COUNT(*), 2) AS coverage_pct,
+       ROUND(PERCENTILE_CONT(0.1) WITHIN GROUP (ORDER BY es.score)::NUMERIC, 2) AS p10,
+       ROUND(PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY es.score)::NUMERIC, 2) AS p90
 FROM student_info si
-JOIN student_assessment sa ON si.id_student = sa.id_student
-JOIN assessments         a  ON sa.id_assessment = a.id_assessment
-WHERE si.code_module        = 'BBB'
-  AND a.code_module         = 'BBB'
-  AND si.code_presentation  IN ('2013B', '2014B')
-  AND a.code_presentation   = si.code_presentation
-  AND sa.score IS NOT NULL
-GROUP BY si.code_presentation
-ORDER BY si.code_presentation;
-
-
--- 6.3  Score percentile distribution — richer than just mean/std
-SELECT
-    si.code_presentation,
-    ROUND(PERCENTILE_CONT(0.10) WITHIN GROUP (ORDER BY sa.score)::NUMERIC, 1) AS p10,
-    ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY sa.score)::NUMERIC, 1) AS p25,
-    ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY sa.score)::NUMERIC, 1) AS median,
-    ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY sa.score)::NUMERIC, 1) AS p75,
-    ROUND(PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY sa.score)::NUMERIC, 1) AS p90
-FROM student_info si
-JOIN student_assessment sa ON si.id_student = sa.id_student
-JOIN assessments         a  ON sa.id_assessment = a.id_assessment
-WHERE si.code_module        = 'BBB'
-  AND a.code_module         = 'BBB'
-  AND si.code_presentation  IN ('2013B', '2014B')
-  AND a.code_presentation   = si.code_presentation
-  AND sa.score IS NOT NULL
+LEFT JOIN enrollment_scores es USING (id_student, code_module, code_presentation)
+WHERE si.code_module = 'BBB' AND si.code_presentation IN ('2013B', '2014J')
 GROUP BY si.code_presentation
 ORDER BY si.code_presentation;
 
@@ -461,25 +450,17 @@ GROUP BY region
 ORDER BY completion_pct DESC;
 
 
--- 7.4  Early engagement lift — confirmation in SQL
---      Students who clicked in their first 14 days vs those who did not
-WITH first_click AS (
-    SELECT id_student, code_module, code_presentation,
-           MIN("date") AS first_activity_day
+-- 7.4  Any positive VLE click on course days 0–13 (notebook 01)
+WITH early AS (
+    SELECT DISTINCT id_student, code_module, code_presentation
     FROM student_vle
-    GROUP BY id_student, code_module, code_presentation
+    WHERE "date" BETWEEN 0 AND 13 AND sum_click > 0
 )
-SELECT
-    CASE WHEN COALESCE(f.first_activity_day, 999) <= 14
-         THEN 'Early active (≤14 days)'
-         ELSE 'Not early active (>14 days or never)'
-    END                                         AS early_engagement,
-    COUNT(*)                                    AS students,
-    ROUND(AVG(CASE WHEN si.final_result IN ('Pass','Distinction')
-                   THEN 1.0 ELSE 0 END) * 100, 1) AS completion_pct,
-    ROUND(AVG(CASE WHEN si.final_result = 'Withdrawn'
-                   THEN 1.0 ELSE 0 END) * 100, 1) AS withdrawal_pct
+SELECT early.id_student IS NOT NULL AS early_active,
+       COUNT(*) AS enrollments,
+       ROUND(AVG((si.final_result IN ('Pass', 'Distinction'))::INT) * 100, 1) AS completion_pct,
+       ROUND(AVG((si.final_result = 'Withdrawn')::INT) * 100, 1) AS withdrawal_pct
 FROM student_info si
-LEFT JOIN first_click f USING (id_student, code_module, code_presentation)
-GROUP BY early_engagement
-ORDER BY completion_pct DESC;
+LEFT JOIN early USING (id_student, code_module, code_presentation)
+GROUP BY early_active
+ORDER BY early_active;
