@@ -95,7 +95,7 @@ funnel AS (
     UNION ALL
     SELECT 2,        'Active (any click)',                COUNT(*) FROM base WHERE total_clicks    > 0
     UNION ALL
-    SELECT 3,        'Submitted ≥1 Assessment',           COUNT(*) FROM base WHERE submitted_count > 0
+    SELECT 3,        'Scored ≥1 Assessment',           COUNT(*) FROM base WHERE submitted_count > 0
     UNION ALL
     SELECT 4,        'Passed',                            COUNT(*) FROM base WHERE final_result IN ('Pass','Distinction')
     UNION ALL
@@ -226,7 +226,7 @@ WITH engagement AS (
 ), submission AS (
     SELECT sa.id_student, a.code_module, a.code_presentation,
            COUNT(sa.score)::NUMERIC / COUNT(*) AS submission_rate,
-           AVG(COALESCE(sa.score, 0)) AS avg_score
+           AVG(sa.score) AS avg_score
     FROM student_assessment sa
     JOIN assessments a USING (id_assessment)
     GROUP BY sa.id_student, a.code_module, a.code_presentation
@@ -235,7 +235,7 @@ WITH engagement AS (
            COALESCE(e.total_clicks, 0) AS total_clicks,
            early.id_student IS NOT NULL AS early_active,
            COALESCE(s.submission_rate, 0) AS submission_rate,
-           COALESCE(s.avg_score, 0) AS avg_score,
+           s.avg_score,
            early.id_student IS NULL AND COALESCE(s.submission_rate, 0) < 0.5 AS at_risk
     FROM student_info si
     LEFT JOIN engagement e USING (id_student, code_module, code_presentation)
@@ -262,7 +262,7 @@ WITH engagement AS (
 ), submission AS (
     SELECT sa.id_student, a.code_module, a.code_presentation,
            COUNT(sa.score)::NUMERIC / COUNT(*) AS submission_rate,
-           AVG(COALESCE(sa.score, 0)) AS avg_score
+           AVG(sa.score) AS avg_score
     FROM student_assessment sa
     JOIN assessments a USING (id_assessment)
     GROUP BY sa.id_student, a.code_module, a.code_presentation
@@ -271,7 +271,7 @@ WITH engagement AS (
            COALESCE(e.total_clicks, 0) AS total_clicks,
            early.id_student IS NOT NULL AS early_active,
            COALESCE(s.submission_rate, 0) AS submission_rate,
-           COALESCE(s.avg_score, 0) AS avg_score,
+           s.avg_score,
            early.id_student IS NULL AND COALESCE(s.submission_rate, 0) < 0.5 AS at_risk
     FROM student_info si
     LEFT JOIN engagement e USING (id_student, code_module, code_presentation)
@@ -343,6 +343,23 @@ ORDER BY estimated_ltv_gbp DESC;
 -- =============================================================
 -- SECTION 6: B/J QUASI-EXPERIMENT
 -- =============================================================
+
+-- 6.0  Balanced module panel used by notebook 03. Raw risks among all enrolled.
+WITH balanced AS (
+    SELECT code_module
+    FROM courses
+    WHERE code_presentation IN ('2013B', '2013J', '2014B', '2014J')
+    GROUP BY code_module
+    HAVING COUNT(DISTINCT code_presentation) = 4
+)
+SELECT code_presentation, COUNT(*) AS enrolled,
+       COUNT(*) FILTER (WHERE final_result IN ('Pass', 'Distinction')) AS completed,
+       ROUND(AVG((final_result IN ('Pass', 'Distinction'))::INT), 4) AS completion_risk
+FROM student_info JOIN balanced USING (code_module)
+WHERE code_presentation IN ('2013B', '2013J', '2014B', '2014J')
+GROUP BY code_presentation
+ORDER BY code_presentation;
+
 
 -- 6.1  Raw completion among all enrollments, earliest B versus latest J per module
 --      Covariate adjustment and clustered inference are computed in notebook 03.

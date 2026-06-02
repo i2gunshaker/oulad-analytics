@@ -20,7 +20,7 @@ __pycache__/
 venv/
 env/
 .env/
-.venv/
+.[v]env/
 
 # OS files
 .DS_Store

@@ -26,4 +26,3 @@ nbconvert==7.16.4
 
 # Withdrawal risk modeling
 scikit-learn==1.5.2
-shap==0.46.0
