@@ -1,106 +1,66 @@
 # OULAD learning analytics
 
-This project uses anonymized records from The Open University to examine course
-engagement, compare completion across presentations, and test how well early
-activity identifies enrollments at risk of withdrawal. The dataset contains
-**32,593 module-presentation enrollments**, **28,785 distinct student IDs**, and
-**10,655,280 virtual learning environment (VLE) event rows**. One student can
-have multiple enrollments. [Data preparation and counts](notebooks/01_data_preparation.ipynb)
+Can early activity help decide which enrollments to review for withdrawal risk? In the held-out October intake, logistic regression identified **388 future withdrawals in 905 reviews**, compared with **229** using the early-inactivity rule. The model underestimated absolute risk. A separate analysis of course completion found a larger adjusted October–February difference in 2014 than in 2013. Both analyses use anonymized Open University records. [Withdrawal evaluation](notebooks/05_withdrawal_risk.ipynb) · [Completion analysis](notebooks/03_ab_test.ipynb) · [Dataset paper](https://doi.org/10.1038/sdata.2017.171)
 
-## Key findings
+## Results and where to reproduce them
 
-- **Engagement funnel.** Of all enrollments, **89.7%** recorded at least one
-  click, **79.2%** had at least one scored assessment, and **47.2%** earned Pass
-  or Distinction. **31.2%** ended with the official outcome Withdrawn. These
-  are shares of all enrollments. [Data preparation](notebooks/01_data_preparation.ipynb) · [Product analytics](notebooks/02_product_analytics.ipynb)
-- **Early activity and retention.** Completion was **55.3%** for enrollments
-  with a positive click on course days 0–13 and **12.4%** for those without
-  one. The largest average week-to-week drop in the retention index was at
-  **week 10 (−10.1 percentage points)**. The index counts distinct active IDs
-  within each presentation, divides by peak activity in weeks 0–2, and caps
-  the ratio at 100%. [Early activity](notebooks/01_data_preparation.ipynb) · [Cohort retention](notebooks/02_product_analytics.ipynb)
-- **Modeled LTV.** The High click tier was estimated at **£3,537** per
-  enrollment and the Inactive tier at **£2,507**, a **£1,030** gap. The
-  scenario uses an illustrative UK Open University fee and assumed
-  re-enrollment and referral rates. [LTV model and sensitivity analysis](notebooks/02_product_analytics.ipynb)
-- **Quasi-experiment.** BBB completion rose from **45.4% (2013B)** to
-  **50.3% (2014J)**, a raw difference of **+4.8 pp**. After adjustment the
-  difference was **+2.6 pp** (95% CI **−0.5 to +5.6 pp**, p = **0.1001**).
-  All six eligible modules had positive adjusted estimates, with nominal
-  intervals above zero for CCC, DDD, and EEE. Among scored enrollments in BBB,
-  mean scores were **77.2** and **64.3** respectively. Score coverage,
-  Welch and Mann–Whitney tests, and the student-cluster bootstrap are reported
-  alongside that secondary comparison. [Quasi-experiment](notebooks/03_ab_test.ipynb)
-- **Withdrawal prediction.** On the held-out **2014J** presentation, logistic
-  regression achieved **0.571 ROC-AUC** and **0.218 average precision**.
-  Gradient boosting achieved **0.563** and **0.215**, respectively. The
-  logistic model's top 10% contained **215 withdrawals among 913 enrollments**
-  (**23.5%** precision, **1.27×** lift over the **18.6%** holdout prevalence).
-  This measures how well the model prioritizes reviews. [Withdrawal risk and calibration](notebooks/05_withdrawal_risk.ipynb)
+An enrollment is a student–module–presentation record. Students can appear more than once. Cell references below are the execution numbers visible in the saved notebooks. Intervals are 95% intervals. The risk analysis resamples students with all their enrollments. The seasonal comparisons use student-clustered standard errors.
 
-## Run locally
+| Measure | Executed result | Notebook and cell |
+| --- | --- | --- |
+| Dataset size | 32,593 enrollments, 28,785 student IDs, 10,655,280 VLE event rows | [Preparation](notebooks/01_data_preparation.ipynb), In [2] |
+| Share of all enrollments at each milestone | 89.7% clicked, 79.2% had a scored assessment, 47.2% earned Pass or Distinction, 31.2% withdrew | [Funnel](notebooks/02_product_analytics.ipynb), In [2] · [Outcomes](notebooks/01_data_preparation.ipynb), In [4] |
+| Completion by early activity, all enrollments | 55.3% with a positive click on days 0–13 vs 12.4% without one | [Early activity](notebooks/01_data_preparation.ipynb), In [17] |
+| Largest average weekly drop in the retention index | Week 10, −10.1 percentage points | [Retention](notebooks/02_product_analytics.ipynb), In [7] |
+| Illustrative gross lifetime revenue per enrollment | £3,537 in the High click tier and £2,507 in the Inactive tier | [Revenue scenario](notebooks/02_product_analytics.ipynb), In [9] |
+| Adjusted completion difference, October minus February | 2013 **+1.05 pp** [−0.75, +2.85]. 2014 **+3.79 pp** [+1.95, +5.62] | [Seasonal contrasts](notebooks/03_ab_test.ipynb), In [2] |
+| Change in that seasonal difference | **+2.74 pp** [+0.18, +5.29] across the common modules BBB, DDD and FFF | [Panel and interaction](notebooks/03_ab_test.ipynb), In [1–2] |
+| Validation ROC-AUC of the full logistic model, common 2014B origin | Day 14 **0.5265**. Day 28 **0.5812**. Day 42 **0.6155**. Day 42 won the two-fold selection with mean average precision **0.2389** | [Temporal validation](notebooks/05_withdrawal_risk.ipynb), In [4–5] |
+| Final 2014J evaluation population, start of day 42 | 9,041 eligible enrollments, 1,611 official withdrawals (17.82%). Top 10% review budget rounded up to 905 | [Holdout](notebooks/05_withdrawal_risk.ipynb), In [6] |
+| Logistic regression, ranking | ROC-AUC **0.6883** [0.6740, 0.7031]. Average precision **0.3488** [0.3253, 0.3740] | [Ranking and bootstrap](notebooks/05_withdrawal_risk.ipynb), In [6–7] |
+| Logistic regression, review queue | **388/905**, precision **42.87%** [39.53%, 46.47%], lift **2.4060×** [2.2409, 2.5756] | [Review queue](notebooks/05_withdrawal_risk.ipynb), In [6–7] |
+| Rule and gradient boosting at the same budget | No click on days 0–13 identified **229/905**. Boosting identified **362/905**. Logistic minus rule average precision was **+0.1608** [+0.1393, +0.1822] | [Paired comparison](notebooks/05_withdrawal_risk.ipynb), In [6–7] |
+| Logistic calibration | Mean predicted risk **16.16%**, observed **17.82%**. Brier score **0.1355** [0.1305, 0.1406] | [Calibration](notebooks/05_withdrawal_risk.ipynb), In [6–8] |
+| Published vs corrected retention, 2013B week 1 | **96.8% → 93.6%**. Across **104** cohort-week cells the published extract had **3** above 100%. The refresh had **0** | [Tableau reconciliation](notebooks/04_tableau_export.ipynb), In [4] |
 
-Download and extract the CSVs directly into `data/raw/`. OULAD contains
-observed, anonymized enrollment, assessment, and click records. The analysis
-uses the data as released under CC BY 4.0. [Kaggle download](https://www.kaggle.com/datasets/anlgrbz/student-demographics-online-education-dataoulad) · [Dataset paper](https://doi.org/10.1038/sdata.2017.171)
+### Interpreting the results
 
-From the repository root with Python 3.12:
+**Withdrawal risk.** The large early-click gap describes completion among everyone who enrolled. By the time a support team can act, many inactive students have already withdrawn. Among remaining enrollments, early inactivity separates future withdrawals much less clearly. Weekly click counts, recency, activity types, the first assessment and entry information add signal. Waiting for more activity also shortens the intervention window. The notebook lists each feature, its cutoff and the registrations that can contribute to prior history. [Risk sets and feature audit](notebooks/05_withdrawal_risk.ipynb)
+
+**Temporal validity.** Only dated registrations still at risk enter the queue. Earlier modules must have finished before training labels can be used. Overlapping terms leave the same February training intake for both development origins. Day 14 has a common-origin diagnostic after outcomes mature, but lacks two usable selection folds. The source has no timestamp for final-result publication. Training therefore reconstructs known withdrawals from dated exits and audits agreement with the official label. One final intake measures ranking and calibration; intervention effectiveness would require a separate study. [Validation protocol and label audit](notebooks/05_withdrawal_risk.ipynb)
+
+**Seasonality.** The pooled analysis uses modules offered in every season and year and adjusts for module and entry characteristics. The notebook also gives the same-season year comparisons, every available within-module pair, the original cross-year BBB comparison, and risk-ratio E-values for sensitivity to unmeasured confounding. Student mix, assessment design and other calendar changes can explain some of the association. Mean marks apply only to enrollments with a recorded mark. [Design and sensitivity analysis](notebooks/03_ab_test.ipynb)
+
+**Engagement and revenue.** Funnel milestones are counted independently. Weekly retention is an activity index with an early-peak denominator. The lifetime revenue scenario uses assumed fees, repeat enrollment and referrals. OULAD records learning activity and outcomes and supplies no observed revenue for this calculation. [Product analytics](notebooks/02_product_analytics.ipynb)
+
+## Reproduce locally
+
+Extract the seven source CSVs into `data/raw/`. Use Python 3.12 and run the notebooks in filename order. Notebook 01 builds the enrollment table, notebook 02 saves weekly retention, and notebook 04 reads both. Plotly figures use its CDN. [Dataset download](https://www.kaggle.com/datasets/anlgrbz/student-demographics-online-education-dataoulad)
 
 ```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
+python3.12 -m venv env
+source env/bin/activate
 python -m pip install -r requirements.txt
-jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=240 notebooks/0*.ipynb
+python -m ipykernel install --sys-prefix --name oulad
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
+  jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.kernel_name=oulad \
+  --ExecutePreprocessor.timeout=450 notebooks/0*.ipynb
 ```
 
-Run the notebooks in the order shown below. Notebook 01 creates the processed
-table read by notebooks 02 and 04. Notebooks 03 and 05 read the raw CSVs
-directly. Open the executed notebooks in Jupyter to view the charts. Interactive
-Plotly charts use the Plotly CDN, and selected static figures are in `assets/`.
-
-To run the SQL from the repository root using a fresh PostgreSQL database:
+The schema and complete query library ran on PostgreSQL with the original CSVs. The enrollment counts, funnel, early-click completion, balanced-panel totals, weekly retention and revenue scenario were cross-checked against notebook results. Run the schema in a fresh database from the repository root. [Schema and load](sql/01_setup_schema.sql) · [Analytical queries](sql/02_queries.sql)
 
 ```bash
 createdb oulad
-psql -d oulad -v ON_ERROR_STOP=1 -f sql/01_setup_schema.sql
-psql -d oulad -v ON_ERROR_STOP=1 -f sql/02_queries.sql
+psql -X -d oulad -v ON_ERROR_STOP=1 -f sql/01_setup_schema.sql
+psql -X -d oulad -v ON_ERROR_STOP=1 -f sql/02_queries.sql
 ```
 
-The query library uses window functions for outcome shares, funnel ratios and
-week-over-week retention. Covariate adjustment and model evaluation run in Python.
+## Tableau workbook refresh
 
-## Repository structure
+The published heatmap divides each week's distinct active IDs by Week 0 and allows percentages above 100. Notebook 02 counts distinct IDs with a positive click across modules within each presentation. Its denominator is the peak weekly count in weeks 0–2. It caps the ratio at one and gives presentations equal weight when calculating the weekly change. [Published dashboard](https://public.tableau.com/app/profile/aitugan.shagyr/viz/OULADLearningAnalyticsEngagementRetentionOutcomes/Dashboard1?publish=yes) · [Export comparison](notebooks/04_tableau_export.ipynb)
 
-| Path | Contents |
-| --- | --- |
-| `notebooks/01_data_preparation.ipynb` | Input checks, enrollment joins, early activity and segmentation |
-| `notebooks/02_product_analytics.ipynb` | Funnel, cohort retention, modeled LTV and sensitivity |
-| `notebooks/03_ab_test.ipynb` | Raw and adjusted B/J completion, score comparisons |
-| `notebooks/04_tableau_export.ipynb` | Published dashboard exports and retention reconciliation |
-| `notebooks/05_withdrawal_risk.ipynb` | Day-28 features, temporal holdout, calibration and SHAP |
-| `sql/` | PostgreSQL schema, CSV load and analytical queries |
-| `assets/` | Figures generated by the notebooks |
-| `outputs/tableau/` | CSVs used by the published workbook |
+- Replace the workbook data sources with the matching CSVs generated in `data/processed/tableau/`. The checked-in files in `outputs/tableau/` are the archived published extracts.
+- For the heatmap use `cohort` and `week` as dimensions. Use `MIN([retention_rate])` for color and labels at that grain. The export stores percentage points; use a numeric format with a literal percent suffix. Remove the Week 0 table calculation. Check the example and upper bound in the results table before republishing.
+- Label funnel counts **Enrollments**, the assessment milestone **At least one scored assessment**, and the final completion milestone **Pass or Distinction**. Label the regional score **Mean among scored enrollments**. Republish the workbook from the owner's Tableau account.
 
-## Tableau Public
-
-The published funnel shares agree with the notebook. Its count label
-“Students” refers to enrollments. The heatmap uses Week 0 as its denominator.
-For example, 2013B Week 1 is **96.8%** in Tableau and **93.6%** under the
-notebook's peak-based index. The Tableau export can exceed 100%, while the
-notebook caps the index. Use the notebook's definition for the Week 10 finding.
-[Published dashboard](https://public.tableau.com/app/profile/aitugan.shagyr/viz/OULADLearningAnalyticsEngagementRetentionOutcomes/Dashboard1?publish=yes) · [Tableau export reconciliation](notebooks/04_tableau_export.ipynb)
-
-## Limitations
-
-- Early activity and full-course engagement are descriptive associations.
-  Presentation differences in the quasi-experiment can reflect calendar,
-  course and assessment changes, and unmeasured differences in who enrolled.
-  The score comparison is conditional on having a recorded score.
-- LTV estimates illustrative gross revenue under assumed fee, repeat enrollment
-  and referral inputs. OULAD supplies outcomes and activity, with no transaction
-  or referral revenue records.
-- The withdrawal model scores enrollments still active at the start of day 28.
-  The retrospective holdout uses earlier presentations for training. Real-time
-  deployment would require confirming when their final labels became available.
-  The results estimate ranking performance under a review capacity constraint.
+The proposed GitHub description and topics are ready to copy. [Repository metadata](REPOSITORY_METADATA.md)
