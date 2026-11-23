@@ -21,7 +21,6 @@ An enrollment is a student–module–presentation record. Students can appear m
 | Logistic regression, review queue | **388/905**, precision **42.87%** [39.53%, 46.47%], lift **2.4060×** [2.2409, 2.5756] | [Review queue](notebooks/05_withdrawal_risk.ipynb), In [6–7] |
 | Rule and gradient boosting at the same budget | No click on days 0–13 identified **229/905**. Boosting identified **362/905**. Logistic minus rule average precision was **+0.1608** [+0.1393, +0.1822] | [Paired comparison](notebooks/05_withdrawal_risk.ipynb), In [6–7] |
 | Logistic calibration | Mean predicted risk **16.16%**, observed **17.82%**. Brier score **0.1355** [0.1305, 0.1406] | [Calibration](notebooks/05_withdrawal_risk.ipynb), In [6–8] |
-| Published vs corrected retention, 2013B week 1 | **96.8% → 93.6%**. Across **104** cohort-week cells the published extract had **3** above 100%. The refresh had **0** | [Tableau reconciliation](notebooks/04_tableau_export.ipynb), In [4] |
 
 ### Interpreting the results
 
@@ -55,12 +54,6 @@ psql -X -d oulad -v ON_ERROR_STOP=1 -f sql/01_setup_schema.sql
 psql -X -d oulad -v ON_ERROR_STOP=1 -f sql/02_queries.sql
 ```
 
-## Tableau workbook refresh
+## Tableau dashboard
 
-The published heatmap divides each week's distinct active IDs by Week 0 and allows percentages above 100. Notebook 02 counts distinct IDs with a positive click across modules within each presentation. Its denominator is the peak weekly count in weeks 0–2. It caps the ratio at one and gives presentations equal weight when calculating the weekly change. [Published dashboard](https://public.tableau.com/app/profile/aitugan.shagyr/viz/OULADLearningAnalyticsEngagementRetentionOutcomes/Dashboard1?publish=yes) · [Export comparison](notebooks/04_tableau_export.ipynb)
-
-- Replace the workbook data sources with the matching CSVs generated in `data/processed/tableau/`. The checked-in files in `outputs/tableau/` are the archived published extracts.
-- For the heatmap use `cohort` and `week` as dimensions. Use `MIN([retention_rate])` for color and labels at that grain. The export stores percentage points; use a numeric format with a literal percent suffix. Remove the Week 0 table calculation. Check the example and upper bound in the results table before republishing.
-- Label funnel counts **Enrollments**, the assessment milestone **At least one scored assessment**, and the final completion milestone **Pass or Distinction**. Label the regional score **Mean among scored enrollments**. Republish the workbook from the owner's Tableau account.
-
-The proposed GitHub description and topics are ready to copy. [Repository metadata](REPOSITORY_METADATA.md)
+The [published dashboard](https://public.tableau.com/app/profile/aitugan.shagyr/viz/OULADLearningAnalyticsEngagementRetentionOutcomes/Dashboard1?publish=yes) is built from the CSVs that notebook 04 writes to `data/processed/tableau/`. The retention heatmap uses the definition from notebook 02: distinct students with a positive click in each week, divided by the peak weekly count in weeks 0–2 and capped at 100%. Funnel counts are enrollments, and the regional score is the mean among enrollments with a recorded mark. [Export notebook](notebooks/04_tableau_export.ipynb)
